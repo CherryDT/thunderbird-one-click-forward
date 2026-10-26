@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "One-Click Forward",
-  "version": "2.1",
+  "version": "2.1.1",
   "author": "David Trapp",
   "description": "Forward emails directly through a dropdown of predefined recipients",
   "permissions": [
@@ -18,6 +18,10 @@
     "scripts": ["utils.js", "background.js"]
   },
   "message_display_action": {
+    "default_icon": "icons/forward-icon-16.png",
+    "default_title": "Quick Forward"
+  },
+  "browser_action": {
     "default_icon": "icons/forward-icon-16.png",
     "default_title": "Quick Forward"
   },

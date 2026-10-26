@@ -1,4 +1,5 @@
 async function buildConfigsList () {
+  const messageId = Number(new URLSearchParams(window.location.search).get('messageId'))
   const { forwardingConfigs } = await browser.storage.local.get({ forwardingConfigs: [] })
   const { migrated, didMigrate } = migrateV2ToV2_1Configs(forwardingConfigs)
   if (didMigrate) {
@@ -31,7 +32,7 @@ async function buildConfigsList () {
     option.title = `Recipients: ${config.recipients.join(', ')}\nFrom: ${config.fromIdentity}\nType: ${config.forwardType}\nAfter: ${actionLabels[config.actionAfter] || 'Do nothing'}`
     option.addEventListener('click', e => {
       try {
-        browser.runtime.sendMessage({ action: 'chooseRecipient', config, compose: e.shiftKey })
+        browser.runtime.sendMessage({ action: 'chooseRecipient', messageId, config, compose: e.shiftKey })
         window.close()
       } catch (e) {
         console.error(e)

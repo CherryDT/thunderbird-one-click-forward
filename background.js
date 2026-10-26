@@ -13,10 +13,19 @@
   }
 })()
 
-async function getMessageId () {
-  const tabs = await browser.tabs.query({ active: true, currentWindow: true })
-  const tabId = tabs[0].id
-  const message = await browser.messageDisplay.getDisplayedMessage(tabId)
+async function getMessageId (tab, useSelection) {
+  if (useSelection && tab.mailTab) {
+    const selected = await browser.mailTabs.getSelectedMessages(tab.id)
+    if (selected.messages.length !== 1 || selected.id) {
+      throw new Error('Select exactly one email to forward.')
+    }
+    return selected.messages[0].id
+  }
+
+  const message = await browser.messageDisplay.getDisplayedMessage(tab.id)
+  if (!message) {
+    throw new Error('Select exactly one email to forward.')
+  }
   return message.id
 }
 
@@ -100,9 +109,8 @@ async function applyPostForwardAction(actionAfter, messageId, accountId) {
   }
 }
 
-async function performForward(config, compose = false) {
+async function performForward(messageId, config, compose = false) {
   config = migrateV2ToV2_1Config(config)
-  const messageId = await getMessageId()
   const identityId = await getIdentityIdFromConfig(messageId, config.fromIdentity)
 
   const composeDetails = {
@@ -129,44 +137,50 @@ async function performForward(config, compose = false) {
   }
 }
 
-// Handle Alt+Click for auto-forward
-browser.messageDisplayAction.onClicked.addListener(async (tab, info) => {
-  const { forwardingConfigs } = await browser.storage.local.get({ forwardingConfigs: [] })
-  console.log('Button clicked:', info);
-  if (info.modifiers.includes('Alt') && forwardingConfigs.length) {
-    try {
+// Both toolbar buttons share the popup and Alt+Click shortcut.
+async function handleActionClick(action, tab, info, useSelection) {
+  let autoForward = false
+  try {
+    const messageId = await getMessageId(tab, useSelection)
+    const { forwardingConfigs } = await browser.storage.local.get({ forwardingConfigs: [] })
+    autoForward = info.modifiers.includes('Alt') && forwardingConfigs.length > 0
+    if (autoForward) {
       // Auto-forward with first config
-      await performForward(forwardingConfigs[0])
-    } catch (e) {
-      console.error(e)
-      browser.notifications.create({
-        "type": "basic",
-        "title": "Auto-forwarding failed!",
-        "message": String(e)
-      })
+      await performForward(messageId, forwardingConfigs[0])
+    } else {
+      try {
+        await action.setPopup({
+          tabId: tab.id,
+          popup: `popup/chooseRecipient.html?messageId=${messageId}`
+        })
+        await action.openPopup()
+      } finally {
+        // Reset popup to none to allow Alt+Click detection next time
+        await action.setPopup({ tabId: tab.id, popup: "" })
+      }
     }
-  } else {
-    // Open popup
-    try {
-      await browser.messageDisplayAction.setPopup({
-        tabId: tab.id,
-        popup: "popup/chooseRecipient.html"
-      });
-      await browser.messageDisplayAction.openPopup();
-    } finally {
-      // Reset popup to none to allow Alt+Click detection next time
-      await browser.messageDisplayAction.setPopup({
-        tabId: tab.id,
-        popup: ""
-      });
-    }
+  } catch (e) {
+    console.error(e)
+    browser.notifications.create({
+      "type": "basic",
+      "title": autoForward ? "Auto-forwarding failed!" : "Forwarding failed!",
+      "message": String(e)
+    })
   }
+}
+
+browser.messageDisplayAction.onClicked.addListener((tab, info) => {
+  return handleActionClick(browser.messageDisplayAction, tab, info, false)
+})
+
+browser.browserAction.onClicked.addListener((tab, info) => {
+  return handleActionClick(browser.browserAction, tab, info, true)
 })
 
 browser.runtime.onMessage.addListener(async (message) => {
   if (message.action === 'chooseRecipient') {
     try {
-      await performForward(message.config, message.compose)
+      await performForward(message.messageId, message.config, message.compose)
     } catch (e) {
       console.error(e)
       browser.notifications.create({
